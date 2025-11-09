@@ -1,20 +1,19 @@
-# fastapi_albert/main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import onnxruntime as ort
 from transformers import AlbertTokenizer
 import numpy as np
 
-# ----------------------------
-# إعداد FastAPI
-# ----------------------------
 app = FastAPI(title="Arabic ALBERT Embedding API")
+
+@app.get("/")
+def home():
+    return {"message": "Arabic ALBERT Embedding API is running 🚀"}
 
 # ----------------------------
 # تحميل tokenizer ONNX
 # ----------------------------
 TOKENIZER_PATH = "models/asafaya/albert-base-arabic"
-#MODEL_PATH = "models/albert_arabic_wa.onnx"
 MODEL_PATH = "models/albert_arabic_wa_merged.onnx"
 TARGET_DIM = 384
 
@@ -48,16 +47,12 @@ def get_embedding(input: TextInput):
     if not input.text.strip():
         raise HTTPException(status_code=400, detail="النص فارغ")
 
-    # Tokenize
     inputs = tokenizer(input.text, return_tensors="np", truncation=True, max_length=128)
     input_ids = inputs["input_ids"]
     attention_mask = inputs["attention_mask"]
 
-    # ONNX inference
     outputs = session.run(None, {"input_ids": input_ids, "attention_mask": attention_mask})
-    embedding_768 = outputs[0].mean(axis=1)  # متوسط كل token
-
-    # إسقاط إلى 384
+    embedding_768 = outputs[0].mean(axis=1)
     embedding_384 = embedding_768 @ projection_matrix
 
     return {"embedding": embedding_384[0].tolist()}
