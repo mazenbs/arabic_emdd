@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+transformers
+numpy
+sentencepiece
+#onnxruntime
+#onnx==1.16.0
+onnxruntime==1.19.2
+#onnxruntime-gpu==1.19.2
+onnxscript==0.1.0.dev20240520
+onnx-graphsurgeon==0.5.2
