@@ -24,6 +24,7 @@ app.add_middleware(
 TOKENIZER_PATH = "models/asafaya/albert-base-arabic"
 MODEL_PATH = "models/albert_arabic_wa_merged.onnx"
 TARGET_DIM = 384
+CHUNK_SIZE = 150  # عدد الكلمات لكل chunk
 
 # ==============================
 # تحميل النموذج
@@ -47,7 +48,18 @@ class TextInput(BaseModel):
     mean_pooling: bool = True
 
 # ==============================
-# دالة المساعدة
+# تقسيم النص إلى chunks
+# ==============================
+def chunk_text(text, chunk_size=CHUNK_SIZE):
+    words = text.split()
+    chunks = []
+    for i in range(0, len(words), chunk_size):
+        chunk = " ".join(words[i:i+chunk_size])
+        chunks.append(chunk)
+    return chunks
+
+# ==============================
+# دالة المساعدة لحساب embedding
 # ==============================
 def compute_embedding(text, mean_pooling=True, normalize=True, return_dim=TARGET_DIM):
     inputs = tokenizer(text, return_tensors="np", truncation=True, max_length=128)
@@ -60,8 +72,7 @@ def compute_embedding(text, mean_pooling=True, normalize=True, return_dim=TARGET
         embedding = last_hidden[:, 0, :]  # CLS token
 
     # الإسقاط
-    projection = np.random.normal(0, 0.1, (768, return_dim)).astype(np.float32)
-    embedding_projected = embedding @ projection
+    embedding_projected = embedding @ projection_matrix[:, :return_dim]
 
     # التطبيع
     if normalize:
@@ -71,17 +82,27 @@ def compute_embedding(text, mean_pooling=True, normalize=True, return_dim=TARGET
     return embedding_projected[0].tolist()
 
 # ==============================
-# POST /embed
+# POST /embed مع تقسيم chunks
 # ==============================
 @app.post("/embed")
 def embed_text(data: TextInput):
     if not data.text.strip():
         raise HTTPException(status_code=400, detail="النص فارغ")
-    emb = compute_embedding(data.text, data.mean_pooling, data.normalize, data.return_dim)
-    return {"embedding": emb}
+
+    chunks = chunk_text(data.text)
+    embeddings = []
+    for chunk in chunks:
+        emb = compute_embedding(chunk, data.mean_pooling, data.normalize, data.return_dim)
+        embeddings.append(emb)
+
+    return {
+        "num_chunks": len(chunks),
+        "chunks": chunks,
+        "embeddings": embeddings
+    }
 
 # ==============================
-# GET /embed
+# GET /embed مع تقسيم chunks
 # ==============================
 @app.get("/embed")
 def embed_text_get(
@@ -92,8 +113,18 @@ def embed_text_get(
 ):
     if not text.strip():
         raise HTTPException(status_code=400, detail="النص فارغ")
-    emb = compute_embedding(text, mean_pooling, normalize, return_dim)
-    return {"embedding": emb}
+
+    chunks = chunk_text(text)
+    embeddings = []
+    for chunk in chunks:
+        emb = compute_embedding(chunk, mean_pooling, normalize, return_dim)
+        embeddings.append(emb)
+
+    return {
+        "num_chunks": len(chunks),
+        "chunks": chunks,
+        "embeddings": embeddings
+    }
 
 # ==============================
 # Health check
