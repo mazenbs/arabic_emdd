@@ -12,7 +12,7 @@ app = FastAPI(title="Arabic ALBERT Embedding API")
 # ==============================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # يمكنك تخصيصها لاحقاً
+    allow_origins=["*"],  # يمكن تخصيصها لاحقًا
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -59,7 +59,7 @@ def chunk_text(text, chunk_size=CHUNK_SIZE):
     return chunks
 
 # ==============================
-# دالة المساعدة لحساب embedding
+# دالة المساعدة لحساب embedding لكل chunk
 # ==============================
 def compute_embedding(text, mean_pooling=True, normalize=True, return_dim=TARGET_DIM):
     inputs = tokenizer(text, return_tensors="np", truncation=True, max_length=128)
@@ -79,10 +79,10 @@ def compute_embedding(text, mean_pooling=True, normalize=True, return_dim=TARGET
         norm = np.linalg.norm(embedding_projected, axis=1, keepdims=True)
         embedding_projected = embedding_projected / (norm + 1e-10)
 
-    return embedding_projected[0].tolist()
+    return embedding_projected[0]
 
 # ==============================
-# POST /embed مع تقسيم chunks
+# POST /embed مع دمج embeddings لكل chunk
 # ==============================
 @app.post("/embed")
 def embed_text(data: TextInput):
@@ -90,19 +90,21 @@ def embed_text(data: TextInput):
         raise HTTPException(status_code=400, detail="النص فارغ")
 
     chunks = chunk_text(data.text)
-    embeddings = []
-    for chunk in chunks:
-        emb = compute_embedding(chunk, data.mean_pooling, data.normalize, data.return_dim)
-        embeddings.append(emb)
+    chunk_embeddings = [compute_embedding(chunk, data.mean_pooling, data.normalize, data.return_dim) for chunk in chunks]
+
+    # دمج كل chunk embeddings في متجه واحد عن طريق المتوسط
+    final_embedding = np.mean(np.stack(chunk_embeddings), axis=0)
+    if data.normalize:
+        final_embedding /= (np.linalg.norm(final_embedding) + 1e-10)
 
     return {
         "num_chunks": len(chunks),
         "chunks": chunks,
-        "embeddings": embeddings
+        "embedding": final_embedding.tolist()
     }
 
 # ==============================
-# GET /embed مع تقسيم chunks
+# GET /embed مع دمج embeddings
 # ==============================
 @app.get("/embed")
 def embed_text_get(
@@ -115,15 +117,17 @@ def embed_text_get(
         raise HTTPException(status_code=400, detail="النص فارغ")
 
     chunks = chunk_text(text)
-    embeddings = []
-    for chunk in chunks:
-        emb = compute_embedding(chunk, mean_pooling, normalize, return_dim)
-        embeddings.append(emb)
+    chunk_embeddings = [compute_embedding(chunk, mean_pooling, normalize, return_dim) for chunk in chunks]
+
+    # دمج كل chunk embeddings في متجه واحد
+    final_embedding = np.mean(np.stack(chunk_embeddings), axis=0)
+    if normalize:
+        final_embedding /= (np.linalg.norm(final_embedding) + 1e-10)
 
     return {
         "num_chunks": len(chunks),
         "chunks": chunks,
-        "embeddings": embeddings
+        "embedding": final_embedding.tolist()
     }
 
 # ==============================
