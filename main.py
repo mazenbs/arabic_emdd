@@ -13,7 +13,7 @@ app = FastAPI(title="Arabic ALBERT Embedding API")
 # ==============================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # يمكن تخصيصها لاحقًا
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,8 +25,8 @@ app.add_middleware(
 TOKENIZER_PATH = "models/asafaya/albert-base-arabic"
 MODEL_PATH = "models/albert_arabic_wa_merged.onnx"
 TARGET_DIM = 384
-CHUNK_SIZE = 50  # حجم الـ chunk الجديد ليتوافق مع ingest
-SENTENCE_SPLIT_REGEX = r'(?<=[.!؟])\s+'  # لتقسيم النص إلى جمل
+CHUNK_SIZE = 50
+SENTENCE_SPLIT_REGEX = r'(?<=[.!؟])\s+'
 
 # ==============================
 # تحميل النموذج
@@ -66,7 +66,7 @@ def chunk_text(text, chunk_size=CHUNK_SIZE):
     return chunks
 
 # ==============================
-# دالة المساعدة لحساب embedding لكل chunk
+# حساب embedding لكل chunk
 # ==============================
 def compute_embedding(text, mean_pooling=True, normalize=True, return_dim=TARGET_DIM):
     inputs = tokenizer(text, return_tensors="np", truncation=True, max_length=128)
@@ -76,7 +76,7 @@ def compute_embedding(text, mean_pooling=True, normalize=True, return_dim=TARGET
     if mean_pooling:
         embedding = last_hidden.mean(axis=1)
     else:
-        embedding = last_hidden[:, 0, :]  # CLS token
+        embedding = last_hidden[:, 0, :]
 
     embedding_projected = embedding @ projection_matrix[:, :return_dim]
 
@@ -87,9 +87,9 @@ def compute_embedding(text, mean_pooling=True, normalize=True, return_dim=TARGET
     return embedding_projected[0]
 
 # ==============================
-# دالة لتحويل النص إلى embedding مع تقسيم الجمل والـ chunks
+# تحويل النص إلى embedding مع تقسيم الجمل و chunks
 # ==============================
-def embed_text_chunks(text, mean_pooling=True, normalize=True, return_dim=TARGET_DIM):
+def text_to_embedding(text, mean_pooling=True, normalize=True, return_dim=TARGET_DIM):
     if not text.strip():
         raise ValueError("النص فارغ")
 
@@ -98,10 +98,7 @@ def embed_text_chunks(text, mean_pooling=True, normalize=True, return_dim=TARGET
 
     for sentence in sentences:
         chunks = chunk_text(sentence, CHUNK_SIZE)
-        chunk_embeddings = [
-            compute_embedding(chunk, mean_pooling, normalize, return_dim)
-            for chunk in chunks
-        ]
+        chunk_embeddings = [compute_embedding(chunk, mean_pooling, normalize, return_dim) for chunk in chunks]
         all_chunk_embeddings.extend(chunk_embeddings)
 
     final_embedding = np.mean(np.stack(all_chunk_embeddings), axis=0)
@@ -116,7 +113,7 @@ def embed_text_chunks(text, mean_pooling=True, normalize=True, return_dim=TARGET
 @app.post("/embed")
 def embed_text(data: TextInput):
     try:
-        final_embedding, sentences = embed_text_chunks(
+        final_embedding, sentences = text_to_embedding(
             data.text, data.mean_pooling, data.normalize, data.return_dim
         )
     except ValueError as e:
@@ -139,7 +136,7 @@ def embed_text_get(
     return_dim: int = Query(TARGET_DIM),
 ):
     try:
-        final_embedding, sentences = embed_text_chunks(
+        final_embedding, sentences = text_to_embedding(
             text, mean_pooling, normalize, return_dim
         )
     except ValueError as e:
