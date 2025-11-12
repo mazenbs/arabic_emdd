@@ -16,7 +16,7 @@ TARGET_DIM = 384  # الأبعاد النهائية المطلوبة
 # تحميل جلسة ONNX
 session = ort.InferenceSession(MODEL_PATH, providers=['CPUExecutionProvider'])
 # تحميل التوكنيزر المحلي
-tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH)
+tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, local_files_only=True)
 
 # إنشاء تطبيق FastAPI
 app = FastAPI(title="Arabic Text Embedding API")
