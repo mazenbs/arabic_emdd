@@ -52,13 +52,13 @@ def reduce_dim(embedding: np.ndarray, target_dim: int = TARGET_DIM) -> np.ndarra
     return reduced
 
 def embed_text(text: str):
-    """تحويل النص إلى قائمة من (جملة، متجه) باستخدام ONNX وتقليل الأبعاد."""
+    """تحويل النص إلى embedding واحد مطابق لدالة الإدخال"""
     normalized = normalize_arabic(text)
     sentences = split_sentences(normalized)
     if not sentences:
-        return []
+        return None
 
-    embeddings = []
+    vectors = []
     for s in sentences:
         input_text = "passage: " + s
         inputs = tokenizer(
@@ -69,13 +69,15 @@ def embed_text(text: str):
         )
         ort_inputs = {k: v for k, v in inputs.items()}
         ort_outs = session.run(None, ort_inputs)
-        vector = ort_outs[0][0]  # قد يكون shape=(seq_len, hidden_size)
-        vector = vector.mean(axis=0)  # Pooling عبر المتوسط
-        vector = vector / (np.linalg.norm(vector) + 1e-10)  # تطبيع المتجه
-        vector = reduce_dim(vector, TARGET_DIM)
-        embeddings.append(vector)
+        vector = ort_outs[0][0]
+        vector = vector / (np.linalg.norm(vector) + 1e-10)
+        vectors.append(vector)
 
-    return list(zip(sentences, embeddings))
+    # نأخذ المتوسط مثل الإدخال في Supabase
+    embedding = np.mean(np.stack(vectors, axis=0), axis=0)
+    embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
+    return embedding.astype(np.float32)
+
 
 # ==============================
 # نموذج البيانات الوارد
