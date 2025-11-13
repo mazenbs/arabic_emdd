@@ -11,21 +11,30 @@ from transformers import AutoTokenizer
 # ==============================
 MODEL_PATH = "models/intfloat_multilingual-e5-small_merged_int8.onnx"
 TOKENIZER_PATH = "models/tool"
-TARGET_DIM = 384  # الأبعاد النهائية المطلوبة
+TARGET_DIM = 384  # عدد الأبعاد النهائي المطلوب
 
-# تحميل جلسة ONNX
-session = ort.InferenceSession(MODEL_PATH, providers=['CPUExecutionProvider'])
-# تحميل التوكنيزر المحلي
+# ==============================
+# إعداد ONNX مع تحسين الأداء
+# ==============================
+options = ort.SessionOptions()
+options.intra_op_num_threads = 1
+options.inter_op_num_threads = 1
+options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+# تحميل الموديل والجلسة لمرة واحدة فقط
+session = ort.InferenceSession(MODEL_PATH, sess_options=options, providers=['CPUExecutionProvider'])
+
+# تحميل التوكنيزر المحلي فقط
 tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, local_files_only=True)
 
 # إنشاء تطبيق FastAPI
-app = FastAPI(title="Arabic Text Embedding API")
+app = FastAPI(title="Arabic Text Embedding API", version="1.0")
 
 # ==============================
 # دوال مساعدة
 # ==============================
 def normalize_arabic(text: str) -> str:
-    """تنظيف النص العربي من التشكيل والرموز وتوحيد الحروف."""
+    """تنظيف النص العربي من الرموز والتشكيل وتوحيد الحروف."""
     text = re.sub(r'[ًٌٍَُِّْـ]', '', text)
     text = re.sub(r'[إأآ]', 'ا', text)
     text = re.sub(r'ى', 'ي', text)
@@ -36,51 +45,38 @@ def normalize_arabic(text: str) -> str:
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
-def split_sentences(text: str):
-    """تقسيم النص إلى جمل باستخدام علامات الترقيم."""
-    sentences = re.split(r'[.\n:؛؟!]', text)
-    return [s.strip() for s in sentences if len(s.strip()) > 0]
-
 def reduce_dim(embedding: np.ndarray, target_dim: int = TARGET_DIM) -> np.ndarray:
-    """تقليل أبعاد المتجه إلى TARGET_DIM باستخدام إسقاط عشوائي."""
+    """تقليل الأبعاد إلى TARGET_DIM بإسقاط عشوائي ثابت."""
     if embedding.shape[0] == target_dim:
         return embedding
     np.random.seed(42)
     projection = np.random.randn(embedding.shape[0], target_dim).astype(np.float32)
-    reduced = embedding @ projection  # ضرب المصفوفة مع 1D vector
+    reduced = embedding @ projection
     reduced /= np.linalg.norm(reduced) + 1e-10
     return reduced
 
 def embed_text(text: str):
-    """تحويل النص إلى embedding واحد مطابق لدالة الإدخال"""
+    """تحويل النص إلى متجه واحد (embedding)."""
     normalized = normalize_arabic(text)
-    sentences = split_sentences(normalized)
-    if not sentences:
+    if not normalized:
         return None
 
-    vectors = []
-    for s in sentences:
-        input_text = "passage: " + s
-        inputs = tokenizer(
-            input_text,
-            return_tensors="np",
-            truncation=True,
-            max_length=256
-        )
-        ort_inputs = {k: v for k, v in inputs.items()}
-        ort_outs = session.run(None, ort_inputs)
-        vector = ort_outs[0][0]
-        vector = vector / (np.linalg.norm(vector) + 1e-10)
-        vectors.append(vector)
-
-    # نأخذ المتوسط مثل الإدخال في Supabase
-    embedding = np.mean(np.stack(vectors, axis=0), axis=0)
-    embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
-    return embedding.astype(np.float32)
-
+    # نستخدم النص كاملاً بدل تقسيمه لجمل لتسريع العملية
+    input_text = "passage: " + normalized
+    inputs = tokenizer(
+        input_text,
+        return_tensors="np",
+        truncation=True,
+        max_length=256
+    )
+    ort_inputs = {k: v for k, v in inputs.items()}
+    ort_outs = session.run(None, ort_inputs)
+    vector = ort_outs[0][0]
+    vector = vector / (np.linalg.norm(vector) + 1e-10)
+    return reduce_dim(vector).astype(np.float32)
 
 # ==============================
-# نموذج البيانات الوارد
+# نموذج الإدخال
 # ==============================
 class TextRequest(BaseModel):
     text: str
@@ -97,18 +93,17 @@ def health():
     return {"status": "ok"}
 
 @app.post("/embed")
-def embed_endpoint(request: TextRequest):
+async def embed_endpoint(request: TextRequest):
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="النص فارغ.")
-    results = embed_text(request.text)
-    if not results:
-        raise HTTPException(status_code=400, detail="لم يتم العثور على جمل صالحة في النص.")
-    response = [{"sentence": s, "embedding": e.tolist()} for s, e in results]
-    return {"results": response}
+    embedding = embed_text(request.text)
+    if embedding is None:
+        raise HTTPException(status_code=400, detail="لم يتم إنشاء متجه صالح.")
+    return {"embedding": embedding.tolist()}
 
 # ==============================
-# تشغيل السيرفر
+# تشغيل محلي فقط (Render يستخدم Gunicorn/Uvicorn تلقائياً)
 # ==============================
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, workers=1)
