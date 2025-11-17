@@ -16,7 +16,37 @@ def normalize_arabic(text: str) -> str: text = re.sub(r"[ًٌٍَُِّْـ]", "
 
 def split_sentences(text: str): sentences = re.split(r"[.\n:؛؟!]", text) return [s.strip() for s in sentences if len(s.strip()) > 0]
 
-def embed_text(text: str): text = normalize_arabic(text) sentences = split_sentences(text) if not sentences: return None
+def embed_text(text: str):
+    """
+    تحويل نص البحث (عادة جملة واحدة) إلى متجه 384-D.
+    """
+    if not text.strip():
+        return None
+
+    # تطبيع النص
+    text = normalize_arabic(text)
+
+    # إعداد الإدخال للنموذج
+    input_text = "passage: " + text
+    inputs = tokenizer(
+        input_text,
+        return_tensors="np",
+        truncation=True,
+        max_length=256,
+        padding="max_length"  # لضمان ثبات الشكل
+    )
+    ort_inputs = {k: v for k, v in inputs.items()}
+    ort_outs = session.run(None, ort_inputs)
+
+    vec_seq = ort_outs[0]  # الشكل: (seq_len, 384)
+    # أخذ متوسط جميع التوكنز → متجه 384 ثابت
+    vec = np.mean(vec_seq, axis=0)
+
+    # تطبيع المتجه
+    vec = vec / (np.linalg.norm(vec) + 1e-10)
+    return vec.astype(np.float32)
+
+def embed_textx(text: str): text = normalize_arabic(text) sentences = split_sentences(text) if not sentences: return None
 all_vectors = []   for s in sentences:       input_text = "passage: " + s       inputs = tokenizer(input_text, return_tensors="np", truncation=True, max_length=256)       ort_inputs = {k: v for k, v in inputs.items()}       ort_outs = session.run(None, ort_inputs)       vector = ort_outs[0][0]       vector = vector / (np.linalg.norm(vector) + 1e-10)       all_vectors.append(vector)    # المتوسط = embedding واحد نهائي   embedding = np.mean(np.stack(all_vectors, axis=0), axis=0)   embedding = embedding / (np.linalg.norm(embedding) + 1e-10)   return embedding.astype(np.float32)   
 
 ==============================
