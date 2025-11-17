@@ -1,4 +1,4 @@
-هذه الوظيفه السابقه التي كنت استخدمها سابقا  كانت تعمل وتتعرف على مسارات النموذج import re import numpy as np import onnxruntime as ort from fastapi import FastAPI, HTTPException from pydantic import BaseModel from transformers import AutoTokenizer
+import re import numpy as np import onnxruntime as ort from fastapi import FastAPI, HTTPException from pydantic import BaseModel from transformers import AutoTokenizer
 
 MODEL_PATH = "models/intfloat_multilingual-e5-small_merged_int8.onnx" TOKENIZER_PATH = "models/tool"
 
