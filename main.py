@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 import numpy as np
 from embeddingonnx import text_to_embedding, query_to_embedding  # استيراد الدوال المعدة مسبقًا
@@ -26,16 +26,14 @@ def root():
 def health():
     return {"status": "ok"}
 
+# ==============================
+# نقاط النهاية الأصلية POST
+# ==============================
 @app.post("/embed")
 def embed_endpoint(request: TextRequest):
-    """
-    تحويل نص كامل إلى embedding صالح للتخزين أو المعالجة.
-    يستخدم الدالة text_to_embedding من embeddingonnx.py
-    """
     text = request.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="النص فارغ.")
-    
     try:
         vector = text_to_embedding(text, normalize=True)
         if vector is None:
@@ -46,16 +44,40 @@ def embed_endpoint(request: TextRequest):
 
 @app.post("/query")
 def query_endpoint(request: TextRequest):
-    """
-    تحويل استعلام البحث (Query) إلى embedding لاستخدامه في البحث.
-    يستخدم الدالة query_to_embedding من embeddingonnx.py
-    """
-    query = request.text.strip()
-    if not query:
+    query_text = request.text.strip()
+    if not query_text:
         raise HTTPException(status_code=400, detail="النص فارغ.")
-    
     try:
-        vector = query_to_embedding(query, normalize=True)
+        vector = query_to_embedding(query_text, normalize=True)
+        if vector is None:
+            raise HTTPException(status_code=400, detail="لم يتم إنشاء embedding للاستعلام.")
+        return {"query_embedding": vector.tolist()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ أثناء إنشاء embedding للاستعلام: {str(e)}")
+
+# ==============================
+# نقاط النهاية الجديدة GET
+# ==============================
+@app.get("/embed")
+def embed_get(text: str = Query(..., description="النص المراد تحويله إلى embedding")):
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="النص فارغ.")
+    try:
+        vector = text_to_embedding(text, normalize=True)
+        if vector is None:
+            raise HTTPException(status_code=400, detail="لم يتم إنشاء embedding للنص.")
+        return {"embedding": vector.tolist()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ أثناء إنشاء embedding: {str(e)}")
+
+@app.get("/query")
+def query_get(text: str = Query(..., description="النص المراد تحويله إلى query embedding")):
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="النص فارغ.")
+    try:
+        vector = query_to_embedding(text, normalize=True)
         if vector is None:
             raise HTTPException(status_code=400, detail="لم يتم إنشاء embedding للاستعلام.")
         return {"query_embedding": vector.tolist()}
